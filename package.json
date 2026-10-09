@@ -1,0 +1,19 @@
+{
+  "name": "export-state",
+  "version": "1.0.0",
+  "description": "Snapshot the rendered state of web pages into static HTML/CSS/assets folders for prototyping.",
+  "type": "module",
+  "bin": {
+    "export-state": "./export-state.mjs"
+  },
+  "files": [
+    "export-state.mjs",
+    "src/"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "playwright": "^1.64.0"
+  }
+}
