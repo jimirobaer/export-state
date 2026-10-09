@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-`export-state` is a Node CLI built on Playwright. It snapshots the live rendered state of web pages into static folders for prototyping elsewhere. It was originally written for a Laravel/Inertia/Vite app served via OrbStack at `*.orb.local`, but it works on any URL. There is no build, lint or test setup.
+`export-state` is a Node CLI built on Playwright. It snapshots the live rendered state of web pages into static folders for prototyping elsewhere. It works on any URL, including local dev servers. There is no build, lint or test setup. The repo is `jimirobaer/export-state` on GitHub (branch `main`); `exports/` and `node_modules/` are git-ignored.
 
 ## Setup and running
 
@@ -15,14 +15,16 @@ export-state <url> --headless [--click "<sel>"]...  # quick single capture
 export-state --manifest states.json [--headed]      # batch, headless by default
 ```
 
-Other flags are `--out <dir>` (default `$EXPORT_STATE_OUT`, then `~/Exports`), `--no-open` (by default the session folder opens in Finder when done), `--name <session>` and `--profile <dir>`. The profile defaults to `$EXPORT_STATE_PROFILE` or `~/.export-state/profile`. See `README.md` for the manifest format and output layout.
+In interactive mode the prompt is `Enter = capture, r = record, q = finish`. Record mode captures a sequence of interaction states and links them into a click-through (see Architecture).
+
+Other flags are `--out <dir>` (default `$EXPORT_STATE_OUT`, then `~/Exports`), `--no-open` (by default the session folder opens in Finder when done), `--name <session>` and `--profile <dir>`. Record-mode flags are `--hover` (hovering interactive elements also creates steps), `--max-states <n>` (default 50) and `--no-links` (skip the click-through script). The profile defaults to `$EXPORT_STATE_PROFILE` or `~/.export-state/profile`. See `README.md` for the manifest format and output layout.
 
 To test, serve a few static pages on two localhost ports (so one stylesheet is cross-origin), run manifest mode headless with `--profile` pointed at a temp dir, and open the output via `file://`. Test record mode by calling `record()` against a headless Playwright page. To exercise the real CLI under a pty, use a test page that triggers its own interactions once `window.__exportStateRec` exists. Tests must pass `--out` pointing at a temp dir and `--no-open`. Never write to the real `~/Exports`.
 
 ## Architecture
 
 - `export-state.mjs` is the bin entry. It parses args (`node:util` parseArgs), launches a persistent Chromium context, and runs one of three modes: interactive, manifest or quick.
-  - It pins `*.orb.local` hosts that are known at launch to IPv4 via `--host-resolver-rules`, because Chromium can't reach OrbStack over IPv6.
+  - It pins `*.orb.local` hosts that are known at launch (URL argument or manifest) to IPv4 via `--host-resolver-rules`, because Chromium can't reach them over IPv6. Other hosts are unaffected.
   - `goto` waits for `networkidle` with a 15s timeout, then continues.
   - The interactive prompt is a queued line reader, so piped stdin works (e.g. `printf '\nname\nq\n' | export-state --out /tmp/x --no-open`).
   - On a TTY, a spinner runs while each capture is in progress. During that time, input is muted and discarded. Without a TTY, it prints plain lines.
@@ -51,8 +53,3 @@ To test, serve a few static pages on two localhost ports (so one stylesheet is c
     - It injects a delimited `<!-- export-state:links -->` script that maps that id to `../<next>/index.html`. The script triggers on click, plus the original keydown, input or submit.
     - It reuses the previous step's `styles.css` when the CSS is byte-identical.
     - It records `recordings: [{ states, links }]` in `session.json`.
-
-## Repo contents beyond the source
-
-- `sheet/` and `sheet.html` are old captured output, not source. Don't read, grep or edit them, because they're huge.
-- `export-profile/` is the old script-relative Chromium profile. It's unused now and can be deleted.
