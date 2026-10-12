@@ -61,7 +61,12 @@ export class Session {
         try {
             const res = await this.request.get(url, { headers: this.headers, timeout: 20000 });
             if (!res.ok()) return null;
-            const name = decodeURIComponent(new URL(url).pathname.split('/').pop() || 'asset').replace(/[^\w.-]/g, '_').slice(-60);
+            const last = new URL(url).pathname.split('/').pop() || 'asset';
+            let decoded = last;
+            try {
+                decoded = decodeURIComponent(last);
+            } catch {} // malformed % escape: use the name as is
+            const name = decoded.replace(/[^\w.-]/g, '_').slice(-60);
             const hash = createHash('sha1').update(url).digest('hex').slice(0, 6);
             const file = `${hash}-${name}`;
             writeFileSync(join(this.dir, 'assets', file), await res.body());

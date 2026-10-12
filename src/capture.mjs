@@ -188,6 +188,14 @@ async function serialize() {
     }
     root.querySelectorAll('picture > source').forEach((n) => n.remove());
 
+    // Other asset references that would otherwise resolve against file:// (video posters, SVG <image>).
+    for (const [selector, attr] of [['video[poster]', 'poster'], ['image[href]', 'href']]) {
+        for (const n of root.querySelectorAll(selector)) {
+            const t = token(n.getAttribute(attr));
+            if (t) n.setAttribute(attr, t);
+        }
+    }
+
     // Inline style="background-image: url(...)" and friends.
     for (const el of root.querySelectorAll('[style*="url("]')) {
         const style = el.getAttribute('style').replace(/url\(\s*(['"]?)(?!data:|#)([^'")]+)\1\s*\)/g, (m, q, u) => {

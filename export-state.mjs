@@ -73,7 +73,19 @@ const normalizeUrl = (url) => {
     return `${local ? 'http' : 'https'}://${url}`;
 };
 
-const manifest = args.manifest ? JSON.parse(readFileSync(resolve(args.manifest), 'utf8')) : null;
+const fail = (message) => {
+    console.error(`✗ ${message}`);
+    process.exit(1);
+};
+
+let manifest = null;
+if (args.manifest) {
+    try {
+        manifest = JSON.parse(readFileSync(resolve(args.manifest), 'utf8'));
+    } catch (e) {
+        fail(`Can't read manifest ${args.manifest}: ${e.message}`);
+    }
+}
 const startUrl = positionals[0] && normalizeUrl(positionals[0]);
 const mode = manifest ? 'manifest' : args.headless ? 'quick' : 'interactive';
 const headless = mode === 'manifest' ? !args.headed : !!args.headless;
@@ -92,9 +104,24 @@ if (manifest && !Array.isArray(manifest.states)) {
 }
 
 // Chromium can't reach OrbStack's *.orb.local over IPv6; pin the IPv4 address of known hosts.
+const hostnameOf = (url) => {
+    try {
+        return new URL(url).hostname;
+    } catch {
+        return fail(`Invalid url: ${url}`);
+    }
+};
 const knownUrls = [startUrl, ...(manifest?.states ?? []).map((s) => s.url && normalizeUrl(s.url))].filter(Boolean);
-const orbHosts = [...new Set(knownUrls.map((u) => new URL(u).hostname).filter((h) => h.endsWith('.orb.local')))];
-const rules = await Promise.all(orbHosts.map(async (h) => `MAP ${h} ${(await lookup(h, { family: 4 })).address}`));
+const orbHosts = [...new Set(knownUrls.map(hostnameOf).filter((h) => h.endsWith('.orb.local')))];
+const rules = await Promise.all(
+    orbHosts.map(async (h) => {
+        try {
+            return `MAP ${h} ${(await lookup(h, { family: 4 })).address}`;
+        } catch (e) {
+            return fail(`Can't resolve ${h}: ${e.message}`);
+        }
+    }),
+);
 
 const profile = resolve(args.profile ?? process.env.EXPORT_STATE_PROFILE ?? join(homedir(), '.export-state', 'profile'));
 const context = await chromium.launchPersistentContext(profile, {
@@ -295,9 +322,10 @@ try {
                 await open(page, normalizeUrl(state.url));
                 await runClicks(page, state.clicks);
                 if (state.waitFor) await page.waitForSelector(state.waitFor, { timeout: 15000 });
-                await captureState(page, state.name || (await defaultName(page)));
+                if (!(await captureState(page, state.name || (await defaultName(page))))) process.exitCode = 1;
             } catch (e) {
                 console.error(`  ✗ ${label}: ${e.message.split('\n')[0]}`);
+                process.exitCode = 1;
             }
         }
     } else if (mode === 'quick') {
