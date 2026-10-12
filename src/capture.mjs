@@ -4,15 +4,18 @@
 const CSS_URL_RE = /(?<!@import\s*)url\(\s*(['"]?)(?!data:|#|%23|about:|blob:)([^'")]+)\1\s*\)/g;
 const CSS_IMPORT_RE = /@import\s+(?:url\(\s*(['"]?)([^'")]+)\1\s*\)|(['"])([^'"]+)\3)([^;]*);/g;
 const TOKEN_RE = /__export_asset_(\d+)__/g;
+const CANVAS_TOKEN_RE = /__export_canvas_(\d+)__/g;
 
 // settle: scroll for lazy images and wait for animations first (record mode does its own settling).
-export async function capture(page, session, { settle = true } = {}) {
+// canvas: replace each <canvas> with a PNG of its current pixels (scripts are stripped, so it can't redraw).
+export async function capture(page, session, { settle = true, canvas = true } = {}) {
     if (settle) {
         await loadLazyContent(page);
         await page.waitForTimeout(800); // let enter animations settle
     }
-    const snap = await page.evaluate(serialize);
+    const snap = await page.evaluate(serialize, { canvas });
     session.ensureDir(new URL(snap.url).hostname);
+    const canvasFiles = await saveCanvases(page, session, snap.canvases);
 
     const keepLinks = [];
     const cssParts = await Promise.all(
@@ -29,12 +32,28 @@ export async function capture(page, session, { settle = true } = {}) {
     );
 
     const saved = await Promise.all(snap.urls.map((u) => session.saveAsset(u)));
-    let html = snap.html.replace(TOKEN_RE, (_, i) => saved[i] ?? escapeAttr(snap.urls[i]));
+    let html = snap.html.replace(TOKEN_RE, (_, i) => saved[i] ?? escapeAttr(snap.urls[i])).replace(CANVAS_TOKEN_RE, (_, i) => canvasFiles[i] ?? '');
     if (keepLinks.length) {
         const links = keepLinks.map((href) => `<link rel="stylesheet" href="${escapeAttr(href)}">`).join('');
         html = html.replace('<link rel="stylesheet" href="styles.css">', (m) => m + links);
     }
     return { html, css: cssParts.filter(Boolean).join('\n'), title: snap.title, url: snap.url };
+}
+
+// Canvases whose pixels couldn't be read in the page (tainted by cross-origin content, WebGL) are
+// screenshotted instead; serialize() marked them with data-export-canvas. Returns paths by index.
+async function saveCanvases(page, session, canvases) {
+    const files = [];
+    for (const [i, { dataUrl }] of canvases.entries()) {
+        const buffer = dataUrl
+            ? Buffer.from(dataUrl.slice(dataUrl.indexOf(',') + 1), 'base64')
+            : await page.locator(`[data-export-canvas="${i}"]`).first().screenshot({ timeout: 3000 }).catch(() => null);
+        files.push(buffer ? await session.saveBuffer(buffer, 'canvas.png') : null);
+    }
+    if (canvases.some((c) => !c.dataUrl)) {
+        await page.evaluate(() => document.querySelectorAll('[data-export-canvas]').forEach((n) => n.removeAttribute('data-export-canvas'))).catch(() => {});
+    }
+    return files;
 }
 
 // Scroll through the page so lazy-loaded images load, then restore the scroll position. Non-fatal.
@@ -101,7 +120,7 @@ async function replaceAsync(str, re, fn) {
 const escapeAttr = (s) => String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;');
 
 // Runs in the page. Asset URLs are replaced by __export_asset_N__ tokens that Node swaps for local paths.
-async function serialize() {
+async function serialize({ canvas }) {
     const urls = [];
     const token = (raw, base = document.baseURI) => {
         let abs;
@@ -164,6 +183,7 @@ async function serialize() {
     };
     const images = pair('img');
     const fields = pair('input, textarea, select');
+    const canvases = canvas ? pair('canvas') : [];
 
     root.querySelectorAll(
         'script, noscript, style, base, link[rel=stylesheet], link[rel=modulepreload], link[rel=preload], link[rel=prefetch], meta[http-equiv="Content-Security-Policy" i], meta[http-equiv=refresh i]',
@@ -187,6 +207,30 @@ async function serialize() {
         img.setAttribute('src', src.startsWith('blob:') ? await toDataUrl(src) : token(src) ?? src);
     }
     root.querySelectorAll('picture > source').forEach((n) => n.remove());
+
+    // Canvas pixels aren't in the markup: swap each canvas for an <img> that Node fills with a PNG.
+    // width/height attributes on an <img> only set its default size, so class/inline CSS still wins.
+    const canvasList = [];
+    for (const [el, clone] of canvases) {
+        if (!el.width || !el.height || !root.contains(clone)) continue;
+        let dataUrl = null;
+        try {
+            // getContext('2d') is null for WebGL canvases, whose drawing buffer toDataURL reads back blank.
+            if (el.getContext('2d')) dataUrl = el.toDataURL('image/png'); // throws if the canvas is tainted
+        } catch {}
+        const n = canvasList.length;
+        if (!dataUrl || dataUrl === 'data:,') {
+            dataUrl = null;
+            el.setAttribute('data-export-canvas', String(n)); // Node screenshots it instead
+        }
+        const img = document.createElement('img');
+        for (const { name, value } of clone.attributes) if (name !== 'width' && name !== 'height') img.setAttribute(name, value);
+        img.setAttribute('width', String(el.clientWidth || el.width));
+        img.setAttribute('height', String(el.clientHeight || el.height));
+        img.setAttribute('src', `__export_canvas_${n}__`);
+        clone.replaceWith(img);
+        canvasList.push({ dataUrl });
+    }
 
     // Other asset references that would otherwise resolve against file:// (video posters, SVG <image>).
     for (const [selector, attr] of [['video[poster]', 'poster'], ['image[href]', 'href']]) {
@@ -227,5 +271,5 @@ async function serialize() {
     link.setAttribute('href', 'styles.css');
     head.append(link);
 
-    return { html: '<!doctype html>\n' + root.outerHTML, sheets, urls, title: document.title, url: location.href };
+    return { html: '<!doctype html>\n' + root.outerHTML, sheets, urls, canvases: canvasList, title: document.title, url: location.href };
 }

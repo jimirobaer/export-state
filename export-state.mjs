@@ -28,6 +28,7 @@ Options:
   --name <name>       session name (default: manifest name or first host)
   --profile <dir>     browser profile (default: $EXPORT_STATE_PROFILE or ~/.export-state/profile)
   --no-open           don't open the session folder when done
+  --no-canvas         keep <canvas> elements as is (default: replace each with a PNG of its pixels)
   --hover             record mode: also snapshot after hovering interactive elements
   --max-states <n>    record mode: stop a recording after n states (default 50)
   --no-links          record mode: don't make recorded states click through to the next
@@ -51,6 +52,7 @@ try {
             name: { type: 'string' },
             profile: { type: 'string' },
             'no-open': { type: 'boolean' },
+            'no-canvas': { type: 'boolean' },
             hover: { type: 'boolean' },
             'max-states': { type: 'string', default: '50' },
             'no-links': { type: 'boolean' },
@@ -182,7 +184,7 @@ function spinner(label) {
 async function captureState(target, name) {
     const spin = spinner(`Capturing ${name}…`);
     try {
-        const result = await capture(target, session);
+        const result = await capture(target, session, { canvas: !args['no-canvas'] });
         const folder = basename(session.addState({ name, ...result }));
         spin.stop(`✔ Saved ${folder} (html ${(result.html.length / 1024).toFixed(0)} KB, css ${(result.css.length / 1024).toFixed(0)} KB)`);
         return true;
@@ -203,6 +205,7 @@ async function recordSteps(target, prompt) {
     const { steps, reason } = await record(target, session, {
         signal: controller.signal,
         hover: args.hover,
+        canvas: !args['no-canvas'],
         maxStates,
         spinner,
         prepareLabel: paint(33, "⚠ Preparing recording — don't interact with the page yet…"),

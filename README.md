@@ -75,6 +75,7 @@ export-state https://example.com --headless [--click "<selector>"]...
 | `--click <selector>` | click before capturing (repeatable; used with a url argument) |
 | `--out <dir>` | output root, default `$EXPORT_STATE_OUT` or `~/Exports` (a leading `~` is expanded) |
 | `--no-open` | don't open the session folder when done |
+| `--no-canvas` | keep `<canvas>` elements as they are instead of replacing them with a PNG |
 | `--name <name>` | session name, default: the manifest name or the first captured host |
 | `--profile <dir>` | browser profile, default `$EXPORT_STATE_PROFILE` or `~/.export-state/profile` |
 | `--hover` | record mode: hovering interactive elements also creates steps |
@@ -106,6 +107,7 @@ State pages reference shared files as `../assets/...`, so the folder works offli
 - **CSS**: all CSS the browser applies, including adopted stylesheets and the rules of CSS-in-JS. Cross-origin stylesheets are fetched from Node and inlined, with `@import` inlined too. If that fetch fails, the original `<link>` is kept.
 - **Asset URLs**: `url(...)` references are resolved against the stylesheet they appear in and saved as assets.
 - **Images**: each `<img>` keeps only the image the browser actually chose, so `srcset` and `<picture>` are reduced to that one file. Inline `style="...url(...)"` images and favicons are saved too.
+- **Canvas**: scripts are stripped, so a `<canvas>` (e.g. Chart.js) would export blank. Each one is replaced by an `<img>` of its current pixels (a static picture, no hover or tooltips); canvases the page can't read (cross-origin content, WebGL) are screenshotted instead. `--no-canvas` turns this off.
 - **Lazy-loaded images**: the page is scrolled through before capture so they load, then the original scroll position is restored.
 - **Forms and modals**: live form values are copied into the markup. `inert` and body scroll locks are removed, so open modals stay usable.
 - **Slow pages**: page loads wait for network idle for up to 15 seconds, then continue with a warning.

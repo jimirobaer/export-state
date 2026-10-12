@@ -57,6 +57,18 @@ export class Session {
         return this.assets.get(url);
     }
 
+    // Saves in-memory bytes (e.g. a canvas PNG), deduplicated by content; returns the path like saveAsset.
+    saveBuffer(buffer, name) {
+        const hash = createHash('sha1').update(buffer).digest('hex').slice(0, 10);
+        const key = `buffer:${hash}`;
+        if (!this.assets.has(key)) {
+            const file = `${hash}-${name}`;
+            writeFileSync(join(this.dir, 'assets', file), buffer);
+            this.assets.set(key, Promise.resolve(`../assets/${file}`));
+        }
+        return this.assets.get(key);
+    }
+
     async #download(url) {
         try {
             const res = await this.request.get(url, { headers: this.headers, timeout: 20000 });

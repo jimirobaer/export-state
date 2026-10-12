@@ -23,7 +23,7 @@ const quietSpinner = () => ({ stop() {} });
 export async function record(
     page,
     session,
-    { signal, hover = false, maxStates = 50, spinner = quietSpinner, warn = console.warn, onReady = () => {}, prepareLabel } = {},
+    { signal, hover = false, canvas = true, maxStates = 50, spinner = quietSpinner, warn = console.warn, onReady = () => {}, prepareLabel } = {},
 ) {
     const context = page.context();
     if (!bound.has(context)) {
@@ -52,7 +52,7 @@ export async function record(
         const spin = spinner(steps.length === 0 && prepareLabel ? prepareLabel : `Capturing ${label}…`);
         try {
             await page.evaluate(tagElements);
-            const result = await capture(page, session, { settle: false });
+            const result = await capture(page, session, { settle: false, canvas });
             if (moved()) return spin.stop(null); // the interaction navigated away; nothing to keep
             const hash = hashOf(result.html);
             const prev = steps.at(-1);
